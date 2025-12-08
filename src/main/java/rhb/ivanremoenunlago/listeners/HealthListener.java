@@ -19,76 +19,122 @@ import rhb.ivanremoenunlago.RankHealthBonus;
 
 public class HealthListener implements Listener {
 
+    public final String HealthName = "[lang].stat.modifier.health_rank[/lang]";
+
     @EventHandler
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
-        Bukkit.getLogger().info("[RankHealthBonus] Player joined: " + player.getName()
-                + " / Jugador conectado: " + player.getName());
-        applyHealthBonus(player);
+        // Run task on next tick to ensure player data is loaded
+        // Ejecuta la tarea en el siguiente tick para asegurarse de que los datos del jugador estén cargados
+        Bukkit.getScheduler().runTask(RankHealthBonus.getInstance(), () -> applyHealthBonus(player));
     }
 
     private void applyHealthBonus(Player player) {
-        int bonus = 0;
+        Bukkit.getLogger().info("[RankHealthBonus] Player joined: " + player.getName());
+        // Get LuckPerms user
+        // Obtiene el usuario de LuckPerms
+        User user = getLuckPermsUser(player);
+        if (user == null) return;
 
+        // Calculate total health bonus based on groups
+        // Calcula el bonus total de salud según los grupos
+        int bonus = calculateBonus(user, player);
+
+        // Apply the calculated bonus to AuraSkills
+        // Aplica el bonus calculado a AuraSkills
+        applyBonus(player, bonus);
+    }
+
+    private User getLuckPermsUser(Player player) {
         LuckPerms lp = RankHealthBonus.getLuckPerms();
         if (lp == null) {
-            Bukkit.getLogger().warning("[RankHealthBonus] LuckPerms API not found! / API de LuckPerms no encontrada!");
-            return;
+            Bukkit.getLogger().warning("[RankHealthBonus] LuckPerms API not found.");
+            // API de LuckPerms no encontrada
+            return null;
         }
 
         User user = lp.getUserManager().getUser(player.getUniqueId());
         if (user == null) {
-            Bukkit.getLogger().warning("[RankHealthBonus] LuckPerms user not loaded for player " + player.getName()
-                    + " / Usuario de LuckPerms no cargado para jugador " + player.getName());
-            return;
+            Bukkit.getLogger().warning("[RankHealthBonus] LuckPerms user not found for player " + player.getName());
+            // Usuario de LuckPerms no encontrado para el jugador
         }
+        return user;
+    }
 
-        Bukkit.getLogger().info("[RankHealthBonus] Processing health bonus for player " + player.getName()
-                + " / Procesando bonus de salud para jugador " + player.getName());
+    private int calculateBonus(User user, Player player) {
+        int bonus = 0;
 
-        // Loop through each configured group in config
+        // Loop through configured groups in config.yml
+        // Recorre los grupos configurados en config.yml
         for (String group : RankHealthBonus.getInstance().getConfig()
                 .getConfigurationSection("rank-health").getKeys(false)) {
 
             int extraLife = RankHealthBonus.getInstance().getConfig().getInt("rank-health." + group);
-            String cleanGroup = group.replace("group.", "");
 
-            // Check if user has the group
+            // Check if user has the group via inheritance nodes
+            // Comprueba si el usuario tiene el grupo mediante nodos de herencia
             boolean hasGroup = user.getNodes().stream()
                     .filter(n -> n instanceof InheritanceNode)
                     .map(n -> ((InheritanceNode) n).getGroupName())
-                    .anyMatch(g -> g.equalsIgnoreCase(cleanGroup));
-
-            Bukkit.getLogger().info("[RankHealthBonus] Checking group " + cleanGroup
-                    + " (bonus " + extraLife + ") for player " + player.getName()
-                    + " / Revisando grupo " + cleanGroup + " (bonus " + extraLife + ") para jugador " + player.getName()
-                    + ": " + hasGroup);
+                    .anyMatch(g -> g.equalsIgnoreCase(group.replace("group.", "")));
 
             if (hasGroup) {
-                bonus = Math.max(bonus, extraLife);
-                Bukkit.getLogger().info("[RankHealthBonus] Bonus updated to " + bonus
-                        + " for player " + player.getName() + " / Bonus actualizado a " + bonus + " para jugador " + player.getName());
+                bonus += extraLife; // sum the bonus / suma el bonus
+                Bukkit.getLogger().info("[RankHealthBonus] Player " + player.getName() + " has group " + group +
+                        ", adding bonus " + extraLife + ". Total bonus: " + bonus);
+                // Log only when the player has the group
+                // Loguea solo cuando el jugador tiene el grupo
             }
         }
 
-        Bukkit.getLogger().info("[RankHealthBonus] Final bonus for player " + player.getName()
-                + ": " + bonus + " / Bonus final para jugador " + player.getName() + ": " + bonus);
+        Bukkit.getLogger().info("[RankHealthBonus] Final total bonus for player " + player.getName() + ": " + bonus);
+        // Log final total bonus / Log del bonus total final
 
+        return bonus;
+    }
+
+    private void applyBonus(Player player, int bonus) {
         AuraSkillsApi aura = AuraSkillsApi.get();
-        if (aura != null) {
-            SkillsUser userSkills = aura.getUser(player.getUniqueId());
-            if (userSkills != null) {
-                userSkills.removeStatModifier("rhb_bonus_health");
-                userSkills.addStatModifier(new StatModifier("rhb_bonus_health", Stats.HEALTH, bonus));
-                Bukkit.getLogger().info("[RankHealthBonus] Applied " + bonus
-                        + " health to AuraSkills stat for player " + player.getName()
-                        + " / Aplicado " + bonus + " de salud al stat de AuraSkills para jugador " + player.getName());
-            } else {
-                Bukkit.getLogger().warning("[RankHealthBonus] SkillsUser is null for player " + player.getName()
-                        + " / SkillsUser es null para jugador " + player.getName());
-            }
+        if (aura == null) {
+            Bukkit.getLogger().warning("[RankHealthBonus] AuraSkills API not found. Bonus not applied");
+            // API de AuraSkills no encontrada. Bonus no aplicado
+            return;
+        }
+
+        SkillsUser userSkills = aura.getUser(player.getUniqueId());
+        if (userSkills == null) {
+            Bukkit.getLogger().warning("[RankHealthBonus] SkillsUser for player " + player.getName() + " is null. Bonus not applied");
+            // SkillsUser es null. Bonus no aplicado
+            return;
+        }
+
+        // Check existing modifier
+        // Comprueba si ya existe un modificador
+        StatModifier existing = userSkills.getStatModifiers().values().stream()
+                .filter(m -> m.name().equals(HealthName))
+                .findFirst()
+                .orElse(null);
+
+        if (existing != null && existing.value() == bonus) {
+            // If value is the same, ignore
+            // Si el valor es el mismo, ignorar
+            Bukkit.getLogger().info("[RankHealthBonus] Bonus already applied for player " + player.getName() + ", skipping");
         } else {
-            Bukkit.getLogger().warning("[RankHealthBonus] AuraSkills API not found! / API de AuraSkills no encontrada!");
+            if (existing != null) {
+                // Existing modifier exists but value is different, remove it
+                // Existe un modificador pero el valor es distinto, eliminarlo
+                Bukkit.getLogger().info("[RankHealthBonus] Existing bonus differs for player " + player.getName() + ", removing old modifier");
+                userSkills.removeStatModifier(HealthName);
+            } else {
+                // No existing modifier, adding new one
+                // No existe modificador, añadiendo nuevo
+                Bukkit.getLogger().info("[RankHealthBonus] No existing bonus found for player " + player.getName() + ", adding new modifier");
+            }
+
+            // Add new health bonus
+            // Añade nuevo bonus de salud
+            userSkills.addStatModifier(new StatModifier(HealthName, Stats.HEALTH, bonus));
+            Bukkit.getLogger().info("[RankHealthBonus] Applied " + bonus + " health to AuraSkills stat for player " + player.getName());
         }
     }
 }
