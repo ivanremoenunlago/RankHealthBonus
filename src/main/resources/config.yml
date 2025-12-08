@@ -1,0 +1,12 @@
+# config.yml
+rank-health:
+  "group.f": 0      # No extra health for rank F
+  "group.e": 0      # No extra health for rank E
+  "group.d": 10     # Rank D gives +10 health
+  "group.c": 20     # Rank C gives +10 health
+  "group.b": 30
+  "group.a": 40
+  "group.s": 50
+  "group.ss": 60
+  "group.sss": 70
+  "group.ex": 80

@@ -1,0 +1,6 @@
+name: RankHealthBonus
+main: rhb.ivanremoenunlago.RankHealthBonus
+version: 1.0
+api-version: 1.21
+description: Adds health bonuses to players based on LuckPerms ranks using AuraSkills.
+author: ivanremoenunlago
